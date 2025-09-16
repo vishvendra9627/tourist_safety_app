@@ -30,7 +30,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Build an absolute path to the service account file
-const serviceAccountPath = path.join(__dirname, "...");
+const serviceAccountPath = path.join(__dirname, "serviceAccountKey.json");
 
 const serviceAccount = JSON.parse(
   readFileSync(serviceAccountPath, "utf-8")
