@@ -30,7 +30,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Build an absolute path to the service account file
-const serviceAccountPath = path.join(__dirname, "serviceAccountkey.json");
+const serviceAccountPath = path.join(__dirname, "serviceAccountKey.json");
 
 const serviceAccount = JSON.parse(
   readFileSync(serviceAccountPath, "utf-8")
@@ -191,4 +191,5 @@ app.post("/verify-contact-otp", async (req, res) => {
 app.listen(PORT, () =>
   console.log(`🚀 Backend running on http://localhost:${PORT}`)
 );
+
 
