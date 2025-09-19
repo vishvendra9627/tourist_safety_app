@@ -1,88 +1,125 @@
-
+// index.js
 import dotenv from "dotenv";
 dotenv.config();
 
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-import admin from "firebase-admin";
 import mongoose from "mongoose";
-import { readFileSync } from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
 import { Profile } from "./models/Profile.js";
+import {
+  createDigitalIdRouter,
+  digitalIdSchema,
+} from "./DigitalidForm.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
-// Middleware
+// ----------------- Middleware -----------------
 app.use(cors());
 app.use(bodyParser.json());
 
-// ----------------- MongoDB connection -----------------
+// ----------------- MongoDB connections -----------------
 mongoose
-  .connect(process.env.MONGO_URI)
+  .connect(process.env.MONGO_URI2)
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB error:", err));
 
-// ----------------- Firebase Admin setup -----------------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const digitalIdConnection = mongoose.createConnection(process.env.MONGO_URI2);
 
-// Build an absolute path to the service account file
-const serviceAccountPath = path.join(__dirname, "serviceAccountKey.json");
-
-const serviceAccount = JSON.parse(
-  readFileSync(serviceAccountPath, "utf-8")
-);
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+digitalIdConnection.on("connected", () => {
+  console.log("✅ MongoDB (Digital ID DB) connected");
+});
+digitalIdConnection.on("error", (err) => {
+  console.error("❌ MongoDB (Digital ID DB) error:", err);
 });
 
-// ----------------- SIGNUP -----------------
+const DigitalId = digitalIdConnection.model("DigitalId", digitalIdSchema);
+
+// ----------------- User Schema -----------------
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+});
+
+const User = mongoose.model("User", userSchema);
+
+// ----------------- Authentication Middleware -----------------
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "No token provided" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; // contains userId + email
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+};
+
+// ----------------- Rate Limiting Middleware -----------------
+const otpLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 3,
+  message: "Too many requests, please try again after 5 minutes.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ----------------- Public Routes -----------------
+app.get("/", (req, res) => {
+  res.send("Backend server is running!");
+});
+
+// Signup Route
 app.post("/signup", async (req, res) => {
   const { email, password } = req.body;
   try {
-    const userRecord = await admin.auth().createUser({ email, password });
-    const customToken = await admin.auth().createCustomToken(userRecord.uid);
-    res.status(200).json({
-      uid: userRecord.uid,
-      email: userRecord.email,
-      token: customToken,
-    });
+    let user = await User.findOne({ email });
+    if (user) {
+      return res.status(400).json({ error: "User already exists" });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user = new User({ email, password: hashedPassword });
+    await user.save();
+    res.status(201).json({ message: "Signup successful!" });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// ----------------- LOGIN -----------------
+// Login Route
 app.post("/login", async (req, res) => {
-  const { email } = req.body;
+  const { email, password } = req.body;
   try {
-    const user = await admin.auth().getUserByEmail(email);
-    const customToken = await admin.auth().createCustomToken(user.uid);
-    res.status(200).json({ token: customToken });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ error: "Invalid credentials" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
+
+    const token = jwt.sign({ userId: user._id, email: user.email }, JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    res.status(200).json({ message: "Login successful", token });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// ----------------- GOOGLE LOGIN -----------------
-app.post("/google-login", async (req, res) => {
-  const { credential } = req.body;
-  try {
-    const decodedToken = await admin.auth().verifyIdToken(credential);
-    const customToken = await admin.auth().createCustomToken(decodedToken.uid);
-    res.status(200).json({ token: customToken });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// ----------------- Create / Update Profile -----------------
-app.post("/profile", async (req, res) => {
-  const { name, email, contact, altContact, gender, age } = req.body;
+// ----------------- Protected Routes -----------------
+app.post("/profile", authMiddleware, async (req, res) => {
+  const { name, contact, altContact, gender, age } = req.body;
+  const email = req.user.email;
 
   if (age < 18) {
     return res.status(400).json({ error: "Age must be 18 or above" });
@@ -114,80 +151,11 @@ app.post("/profile", async (req, res) => {
   }
 });
 
-// ----------------- Send Email OTP -----------------
-app.post("/send-email-otp", async (req, res) => {
-  const { email } = req.body;
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+// ----------------- Digital ID Route -----------------
+const digitalIdRouter = createDigitalIdRouter(DigitalId);
+app.use("/api", authMiddleware, digitalIdRouter);
 
-  try {
-    let profile = await Profile.findOne({ email });
-    if (!profile) profile = new Profile({ email });
-    profile.otpEmail = otp;
-    await profile.save();
-
-    // For testing only: return OTP in response
-    res.status(200).json({ message: "OTP generated for email", otp });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// ----------------- Verify Email OTP -----------------
-app.post("/verify-email-otp", async (req, res) => {
-  const { email, otp } = req.body;
-  try {
-    const profile = await Profile.findOne({ email });
-    if (!profile) return res.status(404).json({ error: "Profile not found" });
-
-    if (profile.otpEmail === otp) {
-      profile.emailVerified = true;
-      profile.otpEmail = null;
-      await profile.save();
-      return res.status(200).json({ message: "Email verified successfully" });
-    }
-    res.status(400).json({ error: "Invalid OTP" });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// ----------------- Send Contact OTP -----------------
-app.post("/send-contact-otp", async (req, res) => {
-  const { contact } = req.body;
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-  try {
-    let profile = await Profile.findOne({ contact });
-    if (!profile) profile = new Profile({ contact });
-    profile.otpContact = otp;
-    await profile.save();
-
-    // For testing only: return OTP in response
-    res.status(200).json({ message: "OTP generated for contact", otp });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// ----------------- Verify Contact OTP -----------------
-app.post("/verify-contact-otp", async (req, res) => {
-  const { contact, otp } = req.body;
-  try {
-    const profile = await Profile.findOne({ contact });
-    if (!profile) return res.status(404).json({ error: "Profile not found" });
-
-    if (profile.otpContact === otp) {
-      profile.contactVerified = true;
-      profile.otpContact = null;
-      await profile.save();
-      return res.status(200).json({ message: "Contact verified successfully" });
-    }
-    res.status(400).json({ error: "Invalid OTP" });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
+// ----------------- Start Server -----------------
 app.listen(PORT, () =>
   console.log(`🚀 Backend running on http://localhost:${PORT}`)
 );

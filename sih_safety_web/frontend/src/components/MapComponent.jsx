@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
   GoogleMap,
-  LoadScript,
   Marker,
   Polyline,
 } from "@react-google-maps/api";
@@ -104,56 +103,54 @@ const MapComponent = ({ setStartLocation, setCurrentLocation }) => {
   };
 
   return (
-    <LoadScript googleMapsApiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}>
-      <div style={{ position: "relative", width: "100%", height: "500px" }}>
-        <GoogleMap
-          mapContainerStyle={containerStyle}
-          center={currentCoords || { lat: 28.6139, lng: 77.209 }}
-          zoom={16}
-          onLoad={(mapInstance) => setMap(mapInstance)}
-        >
-          {startCoords && (
-            <Marker
-              position={startCoords}
-              icon="http://maps.google.com/mapfiles/ms/icons/green-dot.png"
-            />
-          )}
-          {currentCoords && (
-            <Marker
-              position={currentCoords}
-              icon="http://maps.google.com/mapfiles/ms/icons/blue-dot.png"
-            />
-          )}
-          {path.length >= 2 && (
-            <Polyline
-              path={path}
-              options={{ strokeColor: "blue", strokeWeight: 4, opacity: 0.7 }}
-            />
-          )}
-        </GoogleMap>
+    <div style={{ position: "relative", width: "100%", height: "500px" }}>
+      <GoogleMap
+        mapContainerStyle={containerStyle}
+        center={currentCoords || { lat: 28.6139, lng: 77.209 }}
+        zoom={16}
+        onLoad={(mapInstance) => setMap(mapInstance)}
+      >
+        {startCoords && (
+          <Marker
+            position={startCoords}
+            icon="http://maps.google.com/mapfiles/ms/icons/green-dot.png"
+          />
+        )}
+        {currentCoords && (
+          <Marker
+            position={currentCoords}
+            icon="http://maps.google.com/mapfiles/ms/icons/blue-dot.png"
+          />
+        )}
+        {path.length >= 2 && (
+          <Polyline
+            path={path}
+            options={{ strokeColor: "blue", strokeWeight: 4, opacity: 0.7 }}
+          />
+        )}
+      </GoogleMap>
 
-        {/* Bottom-left Re-center Button */}
-        <button
-          onClick={handleRecenter}
-          style={{
-            position: "absolute",
-            bottom: "66px",
-            left: "20px",
-            zIndex: 9999,
-            padding: "10px 16px",
-            border: "none",
-            borderRadius: "20px",
-            background: "#007bff",
-            color: "#fff",
-            cursor: "pointer",
-            fontWeight: "bold",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-          }}
-        >
-          Re-center
-        </button>
-      </div>
-    </LoadScript>
+      {/* Bottom-left Re-center Button */}
+      <button
+        onClick={handleRecenter}
+        style={{
+          position: "absolute",
+          bottom: "66px",
+          left: "20px",
+          zIndex: 9999,
+          padding: "10px 16px",
+          border: "none",
+          borderRadius: "20px",
+          background: "#007bff",
+          color: "#fff",
+          cursor: "pointer",
+          fontWeight: "bold",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+        }}
+      >
+        Re-center
+      </button>
+    </div>
   );
 };
 
